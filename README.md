@@ -45,4 +45,13 @@ The system retrieves **real-time job postings** from **Google Jobs** or **Linked
     Location,
     Salary package.
 
-   
+## Sample input and output
+
+## Input
+  <img width="709" height="185" alt="Copy of gen ai To Colab - Colab - Google Chrome 10-08-2025 15_33_58" src="https://github.com/user-attachments/assets/48e1ee38-b78d-4caf-a898-a3fefd2021e4" />
+
+## Output
+  <img width="1805" height="240" alt="Copy of gen ai To Colab - Colab - Google Chrome 10-08-2025 15_35_49" src="https://github.com/user-attachments/assets/a1013e0f-ce3c-4ac7-a202-e32716adbab3" />
+
+  
+
