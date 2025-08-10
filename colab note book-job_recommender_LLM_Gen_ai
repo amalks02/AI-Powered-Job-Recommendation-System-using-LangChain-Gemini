@@ -1,1 +1,126 @@
-link to the colab notebook-https://colab.research.google.com/drive/1QUjnMf8BhUG-PYjR4YnmBoEeMg6ClHNe?usp=sharing
+
+!pip install PyPDF2 faiss-cpu sentence-transformers python-dotenv
+from google.colab import files, userdata
+import PyPDF2
+import faiss
+import numpy as np
+from sentence_transformers import SentenceTransformer
+import os
+import asyncio
+from dotenv import load_dotenv
+
+import google.generativeai as genai
+
+# Load environment variables (less critical if using Colab Secrets)
+load_dotenv()
+
+# Configure API key using Colab Secrets
+try:
+    GOOGLE_API_KEY = userdata.get('GOOGLE_API_KEY')
+    if not GOOGLE_API_KEY:
+        raise ValueError("Google API Key not found in Colab Secrets.")
+    genai.configure(api_key=GOOGLE_API_KEY)
+    print("Google API key configured successfully from Colab Secrets.")
+except ValueError as e:
+    print(f"Error configuring Google API key: {e}")
+    print("Please add your API key to Colab Secrets with the name 'GOOGLE_API_KEY'.")
+except Exception as e:
+    print(f"An unexpected error occurred during API key configuration: {e}")
+
+
+# Initialize the embedder
+embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+# Set up asyncio loop for SentenceTransformer if not already running
+try:
+    asyncio.get_running_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
+
+# Define the PDF processing functions
+def get_pdf_text(pdf_docs):
+    text = ""
+    for pdf in pdf_docs:
+        pdf_reader = PyPDF2.PdfReader(pdf)
+        for page in pdf_reader.pages:
+            text += page.extract_text() or ""
+    return text
+
+
+def split_text(text, chunk_size=500, overlap=50):
+    words = text.split()
+    chunks = []
+    for i in range(0, len(words), chunk_size - overlap):
+        chunk = " ".join(words[i:i + chunk_size])
+        chunks.append(chunk)
+    return chunks
+
+
+def create_vector_store(chunks):
+    embeddings = embedder.encode(chunks)
+    dim = embeddings.shape[1]
+    index = faiss.IndexFlatL2(dim)
+    index.add(np.array(embeddings).astype('float32'))
+    return index, chunks
+
+
+def search_chunks(index, chunks, query, top_k=3):
+    query_embedding = embedder.encode([query])
+    D, I = index.search(np.array(query_embedding).astype('float32'), k=top_k)
+    return [chunks[i] for i in I[0]]
+
+
+def generate_answer(context, question):
+    full_prompt = f"""Answer the question using only the information provided in the context.Be accurate and detailed .If the answer is not in the context,say 'The answer is not provided in the context'
+  Context:{context}
+  Question:{question}
+  Answer:
+  """
+    model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+    response = model.generate_content(full_prompt)
+    return response.text.strip()
+
+
+# --- File Upload and Processing in Colab ---
+
+uploaded_files = files.upload()
+
+pdf_docs = [f for f in uploaded_files.keys() if f.endswith('.pdf')]
+
+if pdf_docs:
+    print("Processing uploaded PDF(s)...")
+    # Assuming get_pdf_text can read from file paths:
+    raw_text = ""
+    for pdf_path in pdf_docs:
+        with open(pdf_path, 'rb') as f:
+            pdf_reader = PyPDF2.PdfReader(f)
+            for page in pdf_reader.pages:
+                text = page.extract_text()
+                if text:
+                    raw_text += text
+
+
+    if not raw_text.strip():
+        print("No extractable text found in the uploaded PDFs.")
+    else:
+        chunks = split_text(raw_text)
+        index, chunk_list = create_vector_store(chunks)
+        print("PDFs processed! You can now ask questions.")
+
+        # --- Ask a question and get the answer in Colab ---
+        user_question = input("Enter your question about the PDF(s): ") # Use input() for Colab notebook interaction
+
+        if user_question:
+            print("\nThinking...")
+            top_chunks = search_chunks(index, chunk_list, user_question)
+            context_text = " ".join(top_chunks)
+            answer = generate_answer(context_text, user_question)
+            print("\nAnswer:")
+            print(answer)
+        else:
+            print("No question was entered.")
+
+
+else:
+    print("No PDF files were uploaded.")
